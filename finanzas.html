@@ -1,0 +1,940 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<meta name="theme-color" content="#090b10"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="default"/>
+<meta name="apple-mobile-web-app-title" content="Finanzas"/>
+<title>Finanzas 💰</title>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800;900&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;width:100%;overflow:hidden}
+#root{height:100dvh;width:100%;overflow:hidden}
+body{-webkit-font-smoothing:antialiased;overscroll-behavior:none;font-family:'Sora',sans-serif;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  padding-left:env(safe-area-inset-left,0px);
+  padding-right:env(safe-area-inset-right,0px);
+  background:#090b10;}
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none}
+input[type=number]{-moz-appearance:textfield}
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#2a2f45;border-radius:99px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script type="text/babel">
+const { useState, useEffect, useCallback } = React;
+
+// ─── Persistence ──────────────────────────────────────────────────────────────
+const KEY = "finanzas_v3";
+const persist = (d) => { try { localStorage.setItem(KEY, JSON.stringify(d)); } catch {} };
+const hydrate = () => { try { const r = localStorage.getItem(KEY); return r ? JSON.parse(r) : null; } catch { return null; } };
+
+const mkPerson = () => ({ ingreso:0, gastos:[], tarjetas:[], prestamos:[], bolsillos:[] });
+const INIT = { personas: { Nicolle:{...mkPerson(),ingreso:3012000}, Carlos:{...mkPerson()} } };
+
+const TIPOS      = ["Necesidades","Ahorros","Deseos","Desarrollo"];
+const CATEGORIAS = ["Servicios","Suscripciones","Compras hogar","Seguros & Taxes","Entretenimiento","Ropa","Cooperativa","Imprevistos","Personal","Otro"];
+const ENTIDADES  = ["Addi","Talpa","Lulo","Rappi","Nu","Banco","Familiar","Otro"];
+const PLATAFORMAS= ["Lulo","Rappi","Nu","Addi","Talpa","Visa","Mastercard","Otro"];
+
+const fmt = (n) => "$" + Number(n||0).toLocaleString("es-CO",{maximumFractionDigits:0});
+const uid = () => Date.now() + Math.random();
+const mesKey = (d=new Date()) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+const mesLabel = (mk) => { const [y,m]=mk.split("-"); return new Date(y,m-1,1).toLocaleDateString("es-CO",{month:"long",year:"numeric"}); };
+
+const DARK  = { bg:"#090b10",surface:"#11141e",card:"#171b28",border:"#1f2435",text:"#e4e7f2",muted:"#64697f",Nicolle:"#e87aab",Carlos:"#4fa3f5",green:"#3ecf8e",red:"#f55f5f",yellow:"#f7c84a",purple:"#9b7bf7",sidebar:"#0e1119" };
+const LIGHT = { bg:"#f5f6fa",surface:"#ffffff",card:"#ffffff",border:"#e2e5ed",text:"#1a1d2e",muted:"#8a90a8",Nicolle:"#d6548a",Carlos:"#2a7fd4",green:"#1aaa6a",red:"#e03030",yellow:"#d4960a",purple:"#6b52d4",sidebar:"#ffffff" };
+let T = DARK;
+const pClr      = (dk) => ({ Nicolle:dk?DARK.Nicolle:LIGHT.Nicolle, Carlos:dk?DARK.Carlos:LIGHT.Carlos });
+const tipoClrFn = (dk) => ({ Necesidades:dk?DARK.Carlos:LIGHT.Carlos, Ahorros:dk?DARK.green:LIGHT.green, Deseos:dk?DARK.Nicolle:LIGHT.Nicolle, Desarrollo:dk?DARK.yellow:LIGHT.yellow });
+
+// ─── Atoms ───────────────────────────────────────────────────────────────────
+const Bar = ({pct,color}) => (
+  <div style={{background:T.border,borderRadius:99,height:6,overflow:"hidden"}}>
+    <div style={{width:`${Math.min(pct,100)}%`,background:color,height:"100%",borderRadius:99,transition:"width .4s"}}/>
+  </div>
+);
+const Tag = ({label,color}) => (
+  <span style={{background:color+"22",color,border:`1px solid ${color}44`,borderRadius:6,padding:"2px 9px",fontSize:11,fontWeight:700,letterSpacing:.4,textTransform:"uppercase",whiteSpace:"nowrap"}}>{label}</span>
+);
+const Stat = ({label,value,sub,color}) => (
+  <div style={{background:T.surface,border:`1px solid ${color}33`,borderRadius:12,padding:"13px 16px",boxShadow:T.bg==="#f5f6fa"?"0 2px 8px #0000000a":"none"}}>
+    <div style={{fontSize:10,color:T.muted,fontWeight:800,letterSpacing:.9,marginBottom:4}}>{label}</div>
+    <div style={{fontSize:19,fontWeight:900,color,letterSpacing:-1}}>{value}</div>
+    {sub && <div style={{fontSize:11,color:T.muted,marginTop:2}}>{sub}</div>}
+  </div>
+);
+const Inp = ({label,value,onChange,type="text",placeholder=""}) => (
+  <label style={{display:"flex",flexDirection:"column",gap:4}}>
+    <span style={{fontSize:10,color:T.muted,fontWeight:800,letterSpacing:.9}}>{label}</span>
+    <input type={type} value={value} placeholder={placeholder} onChange={e=>onChange(e.target.value)}
+      style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,padding:"8px 11px",color:T.text,fontSize:13,outline:"none",width:"100%",boxSizing:"border-box"}}/>
+  </label>
+);
+const Sel = ({label,value,onChange,opts}) => (
+  <label style={{display:"flex",flexDirection:"column",gap:4}}>
+    <span style={{fontSize:10,color:T.muted,fontWeight:800,letterSpacing:.9}}>{label}</span>
+    <select value={value} onChange={e=>onChange(e.target.value)}
+      style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,padding:"8px 11px",color:T.text,fontSize:13,outline:"none",width:"100%"}}>
+      {opts.map(o=><option key={o} value={o}>{o}</option>)}
+    </select>
+  </label>
+);
+const Btn = ({children,onClick,color,sm,style={}}) => {
+  const c = color || T.purple;
+  return <button onClick={onClick} style={{background:c+"22",color:c,border:`1px solid ${c}55`,borderRadius:8,padding:sm?"4px 11px":"9px 18px",fontWeight:700,fontSize:sm?11:13,cursor:"pointer",...style}}>{children}</button>;
+};
+const Card = ({children,style={}}) => (
+  <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:16,padding:"18px 20px",boxShadow:T.bg==="#f5f6fa"?"0 2px 12px #0000000d":"none",...style}}>{children}</div>
+);
+const Modal = ({title,onClose,children}) => (
+  <div style={{position:"fixed",inset:0,background:"#00000099",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+    <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:20,padding:26,width:"100%",maxWidth:480,maxHeight:"88vh",overflowY:"auto"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
+        <div style={{fontSize:16,fontWeight:900,color:T.text}}>{title}</div>
+        <Btn sm onClick={onClose} color={T.muted}>✕</Btn>
+      </div>
+      {children}
+    </div>
+  </div>
+);
+
+const NAV = [
+  {id:"resumen",  icon:"📊",label:"Resumen"},
+  {id:"gastos",   icon:"📋",label:"Gastos Fijos"},
+  {id:"tarjetas", icon:"💳",label:"Tarjetas"},
+  {id:"prestamos",icon:"🏦",label:"Préstamos"},
+  {id:"bolsillos",icon:"🪙",label:"Bolsillos"},
+];
+
+// ─── APP ─────────────────────────────────────────────────────────────────────
+function App() {
+  const [data,setData]         = useState(()=>hydrate()||INIT);
+  const [persona,setPersona]   = useState("Nicolle");
+  const [tab,setTab]           = useState("resumen");
+  const [drawerOpen,setDrawer] = useState(false);
+  const [dark,setDark]         = useState(true);
+
+  T = dark ? DARK : LIGHT;
+  const PC = pClr(dark);
+  const TC = tipoClrFn(dark);
+
+  useEffect(()=>persist(data),[data]);
+
+  const updP = useCallback((quien,patch)=>{
+    setData(d=>({...d,personas:{...d.personas,[quien]:{...d.personas[quien],...patch}}}));
+  },[]);
+
+  const p   = data.personas[persona];
+  const clr = PC[persona];
+  const mes = mesKey();
+  const sinPagar = p.gastos.filter(g=>!(g.pagadoMes?.[mes]>0)).length;
+  const navTo = (id)=>{setTab(id);setDrawer(false);};
+  const swPer = (name)=>{setPersona(name);setTab("resumen");setDrawer(false);};
+  const cur   = NAV.find(n=>n.id===tab);
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",height:"100vh",overflow:"hidden",background:T.bg,color:T.text,transition:"background .3s,color .3s"}}>
+
+      {/* TOP BAR */}
+      <header style={{height:56,minHeight:56,background:T.sidebar,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",padding:"0 12px",gap:10,zIndex:100}}>
+        <button onClick={()=>setDrawer(o=>!o)} style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:9,width:38,height:38,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:5,cursor:"pointer",flexShrink:0}}>
+          {[0,1,2].map(i=>(
+            <span key={i} style={{display:"block",width:18,height:2,background:drawerOpen?(i===1?T.muted:clr):T.muted,borderRadius:99,transition:"all .2s",
+              transform:drawerOpen?(i===0?"rotate(45deg) translate(5px,5px)":i===2?"rotate(-45deg) translate(5px,-5px)":"scaleX(0)"):"none"}}/>
+          ))}
+        </button>
+        <div style={{fontSize:17,fontWeight:900,letterSpacing:-1}}><span style={{color:clr}}>₡</span> Finanzas</div>
+        <div style={{fontSize:12,fontWeight:700,color:T.muted,display:"flex",alignItems:"center",gap:5}}>
+          <span style={{color:T.border}}>›</span><span style={{color:clr}}>{cur?.icon}</span><span>{cur?.label}</span>
+        </div>
+        <div style={{marginLeft:"auto",display:"flex",gap:5,alignItems:"center"}}>
+          {["Nicolle","Carlos"].map(name=>(
+            <button key={name} onClick={()=>swPer(name)} style={{background:persona===name?PC[name]+"22":"transparent",border:`1px solid ${persona===name?PC[name]:T.border}`,borderRadius:20,padding:"4px 10px",color:persona===name?PC[name]:T.muted,fontWeight:800,fontSize:11,cursor:"pointer"}}>
+              {name==="Nicolle"?"👩":"👨"} {name}
+            </button>
+          ))}
+          <button onClick={()=>setDark(d=>!d)} style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:20,padding:"4px 8px",cursor:"pointer",fontSize:14}}>
+            {dark?"☀️":"🌙"}
+          </button>
+        </div>
+      </header>
+
+      {/* OVERLAY */}
+      {drawerOpen && <div onClick={()=>setDrawer(false)} style={{position:"fixed",inset:0,background:"#00000077",zIndex:200}}/>}
+
+      {/* DRAWER */}
+      <div style={{position:"fixed",top:56,left:0,bottom:0,width:220,background:T.sidebar,borderRight:`1px solid ${T.border}`,display:"flex",flexDirection:"column",zIndex:300,transform:drawerOpen?"translateX(0)":"translateX(-100%)",transition:"transform .25s cubic-bezier(.4,0,.2,1)",boxShadow:drawerOpen?"4px 0 32px #00000066":"none"}}>
+        <nav style={{flex:1,padding:"10px 8px",display:"flex",flexDirection:"column",gap:3,overflowY:"auto"}}>
+          {NAV.map(item=>{
+            const active=tab===item.id;
+            const badge=item.id==="gastos"&&sinPagar>0?sinPagar:null;
+            return (
+              <button key={item.id} onClick={()=>navTo(item.id)} style={{display:"flex",alignItems:"center",gap:10,background:active?clr+"22":"transparent",border:`1px solid ${active?clr:"transparent"}`,borderRadius:10,padding:"11px 14px",color:active?clr:T.text,fontWeight:active?800:600,fontSize:14,cursor:"pointer",textAlign:"left"}}>
+                <span style={{fontSize:18}}>{item.icon}</span>
+                <span style={{flex:1}}>{item.label}</span>
+                {badge&&<span style={{background:T.yellow,color:T.bg,borderRadius:99,minWidth:18,height:18,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:900,padding:"0 5px"}}>{badge}</span>}
+              </button>
+            );
+          })}
+        </nav>
+        <div style={{padding:"12px 16px",borderTop:`1px solid ${T.border}`,fontSize:11,color:T.muted,fontWeight:700}}>📅 {mesLabel(mes).toUpperCase()}</div>
+      </div>
+
+      {/* MAIN */}
+      <main style={{flex:1,overflowY:"auto",padding:"20px 16px"}}>
+        {tab==="resumen"   && <Resumen   p={p} persona={persona} clr={clr} updP={updP} mes={mes} TC={TC}/>}
+        {tab==="gastos"    && <Gastos    p={p} persona={persona} clr={clr} updP={updP} mes={mes} TC={TC}/>}
+        {tab==="tarjetas"  && <Tarjetas  p={p} persona={persona} clr={clr} updP={updP}/>}
+        {tab==="prestamos" && <Prestamos p={p} persona={persona} clr={clr} updP={updP}/>}
+        {tab==="bolsillos" && <Bolsillos p={p} persona={persona} clr={clr} updP={updP}/>}
+      </main>
+    </div>
+  );
+}
+
+// ─── RESUMEN ─────────────────────────────────────────────────────────────────
+function Resumen({p,persona,clr,updP,mes,TC}) {
+  const [showPagado,setShowPagado]     = useState(false);
+  const [showPorPagar,setShowPorPagar] = useState(false);
+  const ing = Number(p.ingreso||0);
+  // helper: convierte "DD/MM/YYYY" a "YYYY-MM"
+  const abonoFecha = (a)=>{ if(!a.fecha) return ""; const pts=a.fecha.split("/"); return pts.length===3?String(pts[2])+"-"+pts[1].padStart(2,"0"):a.fecha.slice(0,7); };
+  // gastos fijos
+  const pagadoGastos     = p.gastos.reduce((s,g)=>s+Number(g.pagadoMes?.[mes]||0),0);
+  const porPagarGastos   = p.gastos.reduce((s,g)=>s+Math.max(0,Number(g.monto)-Number(g.pagadoMes?.[mes]||0)),0);
+  const gastosCompletos  = p.gastos.filter(g=>Number(g.pagadoMes?.[mes]||0)>=Number(g.monto)&&Number(g.monto)>0);
+  const gastosParciales  = p.gastos.filter(g=>{ const pp=Number(g.pagadoMes?.[mes]||0); return pp>0&&pp<Number(g.monto); });
+  const gastosPendientes = p.gastos.filter(g=>!(Number(g.pagadoMes?.[mes]||0)>0));
+  // abonos a préstamos
+  const pagadoPrestamos  = p.prestamos.reduce((s,pr)=>s+(pr.abonos||[]).filter(a=>abonoFecha(a)===mes).reduce((ss,a)=>ss+a.monto,0),0);
+  const detalleAbonos    = p.prestamos.flatMap(pr=>(pr.abonos||[]).filter(a=>abonoFecha(a)===mes).map(a=>({nombre:pr.nombre,monto:a.monto,nota:a.nota})));
+  // totales
+  const pagado    = pagadoGastos + pagadoPrestamos + tcPagado;
+  const porPagar  = porPagarGastos + tcPendiente;
+  const deudas    = p.prestamos.reduce((s,pr)=>s+calcSaldo(pr),0);
+  const bolsillos = p.bolsillos.reduce((s,b)=>s+Number(b.monto||0),0);
+  const tcPendiente = p.tarjetas.filter(c=>c.estado==="Pendiente").reduce((s,c)=>s+Number(c.monto),0);
+  const tcPagado    = p.tarjetas.filter(c=>c.estado==="Pagado").reduce((s,c)=>s+Number(c.monto),0);
+  const tcTotal     = p.tarjetas.reduce((s,c)=>s+Number(c.monto),0);
+  // 50/30/20
+  const gNec=p.gastos.filter(g=>g.tipo==="Necesidades").reduce((s,g)=>s+Number(g.monto),0);
+  const gAho=p.gastos.filter(g=>g.tipo==="Ahorros").reduce((s,g)=>s+Number(g.monto),0);
+  const gDes=p.gastos.filter(g=>g.tipo==="Deseos").reduce((s,g)=>s+Number(g.monto),0);
+  const pNec=p.gastos.filter(g=>g.tipo==="Necesidades").reduce((s,g)=>s+Number(g.pagadoMes?.[mes]||0),0);
+  const pAho=p.gastos.filter(g=>g.tipo==="Ahorros").reduce((s,g)=>s+Number(g.pagadoMes?.[mes]||0),0);
+  const pDes=p.gastos.filter(g=>g.tipo==="Deseos").reduce((s,g)=>s+Number(g.pagadoMes?.[mes]||0),0);
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:16,maxWidth:900}}>
+      <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+        <div style={{fontSize:20,fontWeight:900,color:clr}}>{persona==="Nicolle"?"👩":"👨"} {persona}</div>
+        <div style={{maxWidth:200}}><Inp label="INGRESO MENSUAL" type="number" value={p.ingreso} onChange={v=>updP(persona,{ingreso:Number(v)})}/></div>
+      </div>
+
+      {/* Stats row */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+        <Stat label="INGRESO"    value={fmt(ing)}      color={T.green}/>
+        <Stat label="DISPONIBLE" value={fmt(ing-pagado-porPagar)} color={clr}/>
+        <Stat label="DEUDAS"     value={fmt(deudas)}   color={T.red}/>
+        <Stat label="BOLSILLOS"  value={fmt(bolsillos)} color={T.purple}/>
+      </div>
+
+      {/* PAGADO expandible */}
+      <div style={{background:T.surface,border:"1px solid "+T.green+"44",borderRadius:12,overflow:"hidden"}}>
+        <div onClick={()=>setShowPagado(function(s){return !s;})} style={{padding:"13px 16px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{fontSize:10,color:T.muted,fontWeight:800,letterSpacing:.9,marginBottom:3}}>PAGADO {showPagado?"▲":"▼"}</div>
+            <div style={{fontSize:22,fontWeight:900,color:T.green,letterSpacing:-1}}>{fmt(pagado)}</div>
+            <div style={{fontSize:11,color:T.muted,marginTop:2}}>{ing?Math.round(pagado/ing*100):0}% del ingreso</div>
+          </div>
+        </div>
+        {showPagado?(
+          <div style={{borderTop:"1px solid "+T.border,padding:"10px 16px",display:"flex",flexDirection:"column",gap:5}}>
+            {gastosCompletos.length>0?<div style={{fontSize:10,fontWeight:800,color:T.muted,letterSpacing:.8,marginBottom:2}}>GASTOS FIJOS ✓</div>:null}
+            {gastosCompletos.map(function(g){return (
+              <div key={g.id} style={{display:"flex",justifyContent:"space-between",fontSize:12,paddingBottom:4,borderBottom:"1px solid "+T.border}}>
+                <span style={{color:T.text}}>{g.nombre}</span>
+                <span style={{color:T.green,fontWeight:700}}>{fmt(Number(g.pagadoMes?.[mes]||0))}</span>
+              </div>
+            );})}
+            {gastosParciales.length>0?<div style={{fontSize:10,fontWeight:800,color:T.yellow,letterSpacing:.8,margin:"4px 0 2px"}}>PARCIALES</div>:null}
+            {gastosParciales.map(function(g){return (
+              <div key={g.id} style={{display:"flex",justifyContent:"space-between",fontSize:12,paddingBottom:4,borderBottom:"1px solid "+T.border}}>
+                <span style={{color:T.text}}>{g.nombre} <span style={{color:T.yellow,fontSize:10}}>(parcial)</span></span>
+                <span style={{color:T.yellow,fontWeight:700}}>{fmt(Number(g.pagadoMes?.[mes]||0))}</span>
+              </div>
+            );})}
+            {tcPagado>0?<div style={{fontSize:10,fontWeight:800,color:T.muted,letterSpacing:.8,margin:"4px 0 2px"}}>TARJETAS PAGADAS</div>:null}
+            {p.tarjetas.filter(c=>c.estado==="Pagado").map(function(c){return (
+              <div key={c.id} style={{display:"flex",justifyContent:"space-between",fontSize:12,paddingBottom:4,borderBottom:"1px solid "+T.border}}>
+                <span style={{color:T.text}}>{c.descripcion}</span>
+                <span style={{color:T.green,fontWeight:700}}>{fmt(c.monto)}</span>
+              </div>
+            );})}
+            {detalleAbonos.length>0?<div style={{fontSize:10,fontWeight:800,color:T.muted,letterSpacing:.8,margin:"4px 0 2px"}}>ABONOS PRÉSTAMOS</div>:null}
+            {detalleAbonos.map(function(a,i){return (
+              <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:12,paddingBottom:4,borderBottom:"1px solid "+T.border}}>
+                <span style={{color:T.text}}>{a.nombre}{a.nota?" · "+a.nota:""}</span>
+                <span style={{color:T.green,fontWeight:700}}>{fmt(a.monto)}</span>
+              </div>
+            );})}
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:13,fontWeight:900,paddingTop:4}}>
+              <span style={{color:T.muted}}>TOTAL</span>
+              <span style={{color:T.green}}>{fmt(pagado)}</span>
+            </div>
+          </div>
+        ):null}
+      </div>
+
+      {/* POR PAGAR expandible */}
+      <div style={{background:T.surface,border:"1px solid "+T.yellow+"44",borderRadius:12,overflow:"hidden"}}>
+        <div onClick={()=>setShowPorPagar(function(s){return !s;})} style={{padding:"13px 16px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{fontSize:10,color:T.muted,fontWeight:800,letterSpacing:.9,marginBottom:3}}>POR PAGAR {showPorPagar?"▲":"▼"}</div>
+            <div style={{fontSize:22,fontWeight:900,color:T.yellow,letterSpacing:-1}}>{fmt(porPagar)}</div>
+            <div style={{fontSize:11,color:T.muted,marginTop:2}}>{gastosPendientes.length+gastosParciales.length} pendientes</div>
+          </div>
+        </div>
+        {showPorPagar?(
+          <div style={{borderTop:"1px solid "+T.border,padding:"10px 16px",display:"flex",flexDirection:"column",gap:5}}>
+            {gastosParciales.length>0?<div style={{fontSize:10,fontWeight:800,color:T.yellow,letterSpacing:.8,marginBottom:2}}>FALTA COMPLETAR</div>:null}
+            {gastosParciales.map(function(g){return (
+              <div key={g.id} style={{display:"flex",justifyContent:"space-between",fontSize:12,paddingBottom:4,borderBottom:"1px solid "+T.border}}>
+                <span style={{color:T.text}}>{g.nombre} <span style={{color:T.yellow,fontSize:10}}>pagado {fmt(Number(g.pagadoMes?.[mes]||0))}</span></span>
+                <span style={{color:T.yellow,fontWeight:700}}>{fmt(Math.max(0,Number(g.monto)-Number(g.pagadoMes?.[mes]||0)))}</span>
+              </div>
+            );})}
+            {gastosPendientes.length>0?<div style={{fontSize:10,fontWeight:800,color:T.muted,letterSpacing:.8,margin:"4px 0 2px"}}>SIN PAGAR</div>:null}
+            {gastosPendientes.map(function(g){return (
+              <div key={g.id} style={{display:"flex",justifyContent:"space-between",fontSize:12,paddingBottom:4,borderBottom:"1px solid "+T.border}}>
+                <span style={{color:T.text}}>{g.nombre}</span>
+                <span style={{color:T.red,fontWeight:700}}>{fmt(Number(g.monto))}</span>
+              </div>
+            );})}
+            {tcPendiente>0?<div style={{fontSize:10,fontWeight:800,color:T.red,letterSpacing:.8,margin:"4px 0 2px"}}>TARJETAS PENDIENTES</div>:null}
+            {p.tarjetas.filter(c=>c.estado==="Pendiente").map(function(c){return (
+              <div key={c.id} style={{display:"flex",justifyContent:"space-between",fontSize:12,paddingBottom:4,borderBottom:"1px solid "+T.border}}>
+                <span style={{color:T.text}}>{c.descripcion} <span style={{color:T.muted,fontSize:10}}>{c.plataforma}</span></span>
+                <span style={{color:T.red,fontWeight:700}}>{fmt(c.monto)}</span>
+              </div>
+            );})}
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:13,fontWeight:900,paddingTop:4}}>
+              <span style={{color:T.muted}}>TOTAL</span>
+              <span style={{color:T.yellow}}>{fmt(porPagar)}</span>
+            </div>
+          </div>
+        ):null}
+      </div>
+
+      {/* DISPONIBLE desglose */}
+      <div style={{background:T.surface,border:"1px solid "+clr+"33",borderRadius:12,padding:"13px 16px"}}>
+        <div style={{fontSize:10,color:T.muted,fontWeight:800,letterSpacing:.9,marginBottom:6}}>DISPONIBLE</div>
+        <div style={{fontSize:22,fontWeight:900,color:clr,letterSpacing:-1,marginBottom:8}}>{fmt(ing-pagado-porPagar)}</div>
+        <div style={{display:"flex",flexDirection:"column",gap:4,fontSize:12}}>
+          <div style={{display:"flex",justifyContent:"space-between"}}><span style={{color:T.muted}}>Ingreso</span><span style={{color:T.green,fontWeight:700}}>{fmt(ing)}</span></div>
+          <div style={{display:"flex",justifyContent:"space-between"}}><span style={{color:T.muted}}>− Pagado</span><span style={{color:T.red,fontWeight:700}}>−{fmt(pagado)}</span></div>
+          <div style={{display:"flex",justifyContent:"space-between"}}><span style={{color:T.muted}}>− Por pagar</span><span style={{color:T.yellow,fontWeight:700}}>−{fmt(porPagar)}</span></div>
+          <div style={{borderTop:"1px solid "+T.border,paddingTop:4,display:"flex",justifyContent:"space-between",fontWeight:900}}>
+            <span style={{color:T.muted}}>= Libre</span><span style={{color:clr}}>{fmt(ing-pagado-porPagar)}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* 50/30/20 */}
+      <div style={{background:T.card,border:"1px solid "+T.border,borderRadius:16,padding:"18px 20px"}}>
+        <div style={{fontSize:11,fontWeight:800,color:T.muted,letterSpacing:.9,marginBottom:14}}>📐 REGLA 50 / 30 / 20</div>
+        <div style={{display:"flex",flexDirection:"column",gap:16}}>
+          {[
+            {label:"Necesidades 50%",meta:ing*.5,total:gNec,pg:pNec,color:T.Carlos},
+            {label:"Ahorros 20%",    meta:ing*.2,total:gAho,pg:pAho,color:T.green},
+            {label:"Deseos 30%",     meta:ing*.3,total:gDes,pg:pDes,color:T.Nicolle},
+          ].map(function(item){
+            var pct=item.meta?Math.round(item.total/item.meta*100):0;
+            var over=item.total>item.meta;
+            return (
+              <div key={item.label}>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:6}}>
+                  <span style={{fontWeight:700}}>{item.label}</span>
+                  <span style={{fontWeight:900,color:over?T.red:item.color}}>{pct}%</span>
+                </div>
+                <Bar pct={pct} color={over?T.red:item.color}/>
+                {item.pg>0?<div style={{marginTop:3}}><Bar pct={item.meta?Math.round(item.pg/item.meta*100):0} color={T.green}/></div>:null}
+                <div style={{display:"flex",justifyContent:"space-between",marginTop:5,fontSize:11,color:T.muted}}>
+                  <span><span style={{color:T.green,fontWeight:700}}>{fmt(item.pg)} pagado</span> / {fmt(item.total)}</span>
+                  <span>meta {fmt(item.meta)}</span>
+                </div>
+                {over?<div style={{fontSize:11,color:T.red,fontWeight:700,marginTop:2}}>⚠ Excediste {fmt(item.total-item.meta)}</div>:null}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Pendientes */}
+      {(function(){
+        var hoy=new Date().getDate();
+        var prox=p.gastos.filter(function(g){return !(Number(g.pagadoMes?.[mes]||0)>=Number(g.monto));}).sort(function(a,b){return (a.diaCobro||1)-(b.diaCobro||1);});
+        if(!prox.length) return null;
+        return (
+          <div style={{background:T.card,border:"1px solid "+T.border,borderRadius:16,padding:"18px 20px"}}>
+            <div style={{fontSize:11,fontWeight:800,color:T.muted,letterSpacing:.9,marginBottom:12}}>🔔 PENDIENTES ESTE MES</div>
+            <div style={{display:"flex",flexDirection:"column",gap:7}}>
+              {prox.map(function(g){
+                var dia=g.diaCobro||1; var venc=dia<hoy;
+                var tc=(TC||tipoClrFn(true))[g.tipo]||clr;
+                return (
+                  <div key={g.id} style={{display:"flex",alignItems:"center",gap:10,background:T.surface,borderRadius:9,padding:"8px 12px"}}>
+                    <div style={{width:28,height:28,borderRadius:8,background:venc?T.red+"22":T.yellow+"22",border:"1px solid "+(venc?T.red:T.yellow)+"44",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:900,color:venc?T.red:T.yellow}}>{dia}</div>
+                    <div style={{flex:1,fontSize:13,fontWeight:600}}>{g.nombre}</div>
+                    <Tag label={g.tipo} color={tc}/>
+                    <div style={{fontWeight:900,fontSize:13}}>{fmt(g.monto)}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+      {ing>0&&tcPendiente>ing*.3?(
+        <div style={{background:T.red+"22",border:"1px solid "+T.red+"44",borderRadius:12,padding:"10px 14px",fontSize:13}}>
+          ⚠️ Tarjetas pendientes ({fmt(tcPendiente)}) superan el 30% del ingreso.
+        </div>
+      ):null}
+    </div>
+  );
+}
+
+
+// ─── GASTOS FIJOS ─────────────────────────────────────────────────────────────
+function Gastos({p,persona,clr,updP,mes,TC}) {
+  const [form,setForm]=useState({nombre:"",categoria:CATEGORIAS[0],tipo:TIPOS[0],monto:"",diaCobro:"1"});
+  const [filtro,setFiltro]=useState("Todos");
+  const sf=k=>v=>setForm(f=>({...f,[k]:v}));
+
+  const add=()=>{
+    if(!form.nombre||!form.monto) return;
+    const g={...form,id:uid(),monto:Number(String(form.monto).replace(/\D/g,"")),diaCobro:Number(form.diaCobro)||1,pagadoMes:{}};
+    updP(persona,{gastos:[...p.gastos,g]});
+    setForm({nombre:"",categoria:CATEGORIAS[0],tipo:TIPOS[0],monto:"",diaCobro:"1"});
+  };
+  const [abonoGasto,setAbonoGasto]=useState(null);
+  const [abonoGastoMonto,setAbonoGastoMonto]=useState("");
+  const [editGasto,setEditGasto]=useState(null); // gasto completo a editar
+  const [editForm,setEditForm]=useState({});
+
+  const pagarCompleto=(id)=>{
+    updP(persona,{gastos:p.gastos.map(g=>{
+      if(g.id!==id) return g;
+      const pm={...(g.pagadoMes||{})};
+      // toggle: si ya está pagado completo, desmarcar
+      pm[mes]= pm[mes]>=Number(g.monto) ? 0 : Number(g.monto);
+      return {...g,pagadoMes:pm};
+    })});
+  };
+  const pagarParcial=(id,monto)=>{
+    updP(persona,{gastos:p.gastos.map(g=>{
+      if(g.id!==id) return g;
+      const pm={...(g.pagadoMes||{})};
+      pm[mes]=Number(monto)||0;
+      return {...g,pagadoMes:pm};
+    })});
+    setAbonoGasto(null); setAbonoGastoMonto("");
+  };
+  const del=(id)=>updP(persona,{gastos:p.gastos.filter(g=>g.id!==id)});
+  const abrirEdit=(g)=>{setEditGasto(g);setEditForm({nombre:g.nombre,categoria:g.categoria,tipo:g.tipo,monto:String(g.monto),diaCobro:String(g.diaCobro||1)});};
+  const guardarEdit=()=>{
+    if(!editForm.nombre||!editForm.monto) return;
+    updP(persona,{gastos:p.gastos.map(g=>g.id===editGasto.id?{...g,...editForm,monto:Number(String(editForm.monto).replace(/\D/g,"")),diaCobro:Number(editForm.diaCobro)||1}:g)});
+    setEditGasto(null);
+  };
+
+  const lista=filtro==="Todos"?p.gastos:p.gastos.filter(g=>g.tipo===filtro);
+  const sorted=[...lista].sort((a,b)=>(a.diaCobro||1)-(b.diaCobro||1));
+  const pagado=p.gastos.reduce((s,g)=>s+Number(g.pagadoMes?.[mes]||0),0);
+  const porPagar=p.gastos.reduce((s,g)=>s+Math.max(0,Number(g.monto)-Number(g.pagadoMes?.[mes]||0)),0);
+  const ing=Number(p.ingreso||0);
+  const mesesHist=[...new Set(p.gastos.flatMap(g=>Object.keys(g.pagadoMes||{}).filter(k=>g.pagadoMes[k]>0)))].sort().reverse().filter(m=>m!==mes).slice(0,4);
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:16,maxWidth:900}}>
+      <div style={{fontSize:11,fontWeight:800,color:T.muted,letterSpacing:.9}}>📋 GASTOS FIJOS — {persona.toUpperCase()} — {mesLabel(mes).toUpperCase()}</div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10}}>
+        <Stat label="INGRESO"    value={fmt(ing)}        color={T.green}/>
+        <Stat label="PAGADO"     value={fmt(pagado)}     sub={ing?`${Math.round(pagado/ing*100)}%`:""} color={T.red}/>
+        <Stat label="POR PAGAR"  value={fmt(porPagar)}   color={T.yellow}/>
+        <Stat label="DISPONIBLE" value={fmt(ing-pagado-porPagar)} color={clr}/>
+      </div>
+      <Card style={{padding:"12px 16px"}}>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:7}}>
+          <span style={{fontWeight:700}}>Pagados este mes</span>
+          <span style={{fontWeight:900,color:clr}}>{p.gastos.filter(g=>g.pagadoMes?.[mes]>=Number(g.monto)).length} / {p.gastos.length}</span>
+        </div>
+        <Bar pct={p.gastos.length?Math.round(p.gastos.filter(g=>g.pagadoMes?.[mes]>=Number(g.monto)).length/p.gastos.length*100):0} color={clr}/>
+      </Card>
+      <Card>
+        <div style={{fontWeight:900,marginBottom:12}}>+ Agregar gasto recurrente</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10}}>
+          <Inp label="NOMBRE" value={form.nombre} onChange={sf("nombre")} placeholder="Netflix"/>
+          <Sel label="CATEGORÍA" value={form.categoria} onChange={sf("categoria")} opts={CATEGORIAS}/>
+          <Sel label="TIPO" value={form.tipo} onChange={sf("tipo")} opts={TIPOS}/>
+          <Inp label="MONTO" value={form.monto} onChange={sf("monto")} placeholder="12000"/>
+          <Sel label="DÍA COBRO" value={form.diaCobro} onChange={sf("diaCobro")} opts={Array.from({length:28},(_,i)=>String(i+1))}/>
+        </div>
+        <Btn onClick={add} color={T.green} style={{marginTop:12}}>✓ Agregar</Btn>
+      </Card>
+      <div style={{background:T.surface,borderRadius:10,padding:"9px 13px",fontSize:12,color:T.muted,borderLeft:`3px solid ${clr}`}}>
+        💡 El check se resetea cada mes automáticamente.
+      </div>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+        {["Todos",...TIPOS].map(t=>{
+          const tc=(TC||tipoClrFn(true))[t]||clr;
+          return <button key={t} onClick={()=>setFiltro(t)} style={{background:filtro===t?tc+"33":"transparent",border:`1px solid ${filtro===t?tc:T.border}`,borderRadius:7,padding:"5px 12px",color:filtro===t?tc:T.muted,fontSize:12,fontWeight:700,cursor:"pointer"}}>{t}</button>;
+        })}
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:6}}>
+        {sorted.length===0&&<div style={{color:T.muted,textAlign:"center",padding:36,fontSize:13}}>Sin gastos registrados</div>}
+        {sorted.map(g=>{
+          const montoPagado=Number(g.pagadoMes?.[mes]||0);
+          const montoTotal=Number(g.monto);
+          const pagadoCompleto=montoPagado>=montoTotal;
+          const pagadoParcial=montoPagado>0&&!pagadoCompleto;
+          const veces=Object.values(g.pagadoMes||{}).filter(v=>v>0).length;
+          const tc=(TC||tipoClrFn(true))[g.tipo]||clr;
+          const faltante=montoTotal-montoPagado;
+          return (
+            <div key={g.id} style={{background:pagadoCompleto?T.surface:T.card,border:`1px solid ${T.border}`,borderLeft:`3px solid ${pagadoCompleto?T.green:pagadoParcial?T.yellow:tc}`,borderRadius:12,padding:"11px 13px",display:"flex",alignItems:"center",gap:10,opacity:pagadoCompleto?.7:1,transition:"opacity .2s"}}>
+              <div onClick={()=>pagarCompleto(g.id)} style={{width:22,height:22,borderRadius:6,cursor:"pointer",flexShrink:0,background:pagadoCompleto?T.green+"33":pagadoParcial?T.yellow+"33":"transparent",border:`2px solid ${pagadoCompleto?T.green:pagadoParcial?T.yellow:T.muted}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                {pagadoCompleto&&<span style={{color:T.green,fontSize:13,fontWeight:900}}>✓</span>}
+                {pagadoParcial&&<span style={{color:T.yellow,fontSize:11,fontWeight:900}}>½</span>}
+              </div>
+              <div style={{width:24,height:24,borderRadius:6,flexShrink:0,background:T.surface,border:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:900,color:T.muted}}>{g.diaCobro||1}</div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontWeight:700,fontSize:13,textDecoration:pagadoCompleto?"line-through":"none",wordBreak:"break-word"}}>{g.nombre}</div>
+                <div style={{fontSize:10,color:T.muted,marginTop:2}}>{g.categoria} · día {g.diaCobro||1}{veces>0?` · ${veces} mes${veces!==1?"es":""}`:""}</div>
+                {pagadoParcial&&<div style={{fontSize:11,color:T.yellow,fontWeight:700,marginTop:2}}>Pagado {fmt(montoPagado)} · falta {fmt(faltante)}</div>}
+                <div style={{marginTop:5,display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
+                  <Tag label={g.tipo} color={tc}/>
+                  <div style={{fontWeight:900,fontSize:14,color:pagadoCompleto?T.muted:T.text}}>{fmt(montoTotal)}</div>
+                  {!pagadoCompleto&&<Btn sm color={T.yellow} onClick={()=>{setAbonoGasto(g);setAbonoGastoMonto(String(montoPagado||""));}}>Parcial</Btn>}
+                </div>
+              </div>
+              <Btn sm onClick={()=>abrirEdit(g)} color={T.purple}>✏</Btn>
+              <Btn sm onClick={()=>del(g.id)} color={T.red}>✕</Btn>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Modal editar gasto */}
+      {editGasto&&(
+        <div style={{position:"fixed",inset:0,background:"#00000099",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:T.card,border:"1px solid "+T.border,borderRadius:20,padding:24,width:"100%",maxWidth:440,maxHeight:"88vh",overflowY:"auto"}}>
+            <div style={{fontWeight:900,fontSize:16,marginBottom:16}}>✏️ Editar gasto</div>
+            <div style={{display:"flex",flexDirection:"column",gap:11}}>
+              <Inp label="NOMBRE" value={editForm.nombre} onChange={v=>setEditForm(f=>({...f,nombre:v}))} placeholder="Netflix"/>
+              <Sel label="CATEGORÍA" value={editForm.categoria} onChange={v=>setEditForm(f=>({...f,categoria:v}))} opts={CATEGORIAS}/>
+              <Sel label="TIPO" value={editForm.tipo} onChange={v=>setEditForm(f=>({...f,tipo:v}))} opts={TIPOS}/>
+              <Inp label="MONTO" value={editForm.monto} onChange={v=>setEditForm(f=>({...f,monto:v}))} placeholder="12000"/>
+              <Sel label="DÍA COBRO" value={editForm.diaCobro} onChange={v=>setEditForm(f=>({...f,diaCobro:v}))} opts={Array.from({length:28},(_,i)=>String(i+1))}/>
+              <div style={{display:"flex",gap:8,marginTop:4}}>
+                <button onClick={guardarEdit} style={{flex:1,background:T.green+"22",color:T.green,border:"1px solid "+T.green+"55",borderRadius:8,padding:"10px",fontWeight:700,fontSize:13,cursor:"pointer"}}>✓ Guardar</button>
+                <button onClick={()=>setEditGasto(null)} style={{background:T.muted+"22",color:T.muted,border:"1px solid "+T.muted+"55",borderRadius:8,padding:"10px 16px",fontWeight:700,fontSize:13,cursor:"pointer"}}>Cancelar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {abonoGasto&&(
+        <div style={{position:"fixed",inset:0,background:"#00000099",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:20,padding:24,width:"100%",maxWidth:440}}>
+            <div style={{fontWeight:900,fontSize:16,marginBottom:4}}>{abonoGasto.nombre}</div>
+            <div style={{fontSize:12,color:T.muted,marginBottom:16}}>Total: {fmt(abonoGasto.monto)} · ¿Cuánto pudiste pagar este mes?</div>
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              <label style={{display:"flex",flexDirection:"column",gap:4}}>
+                <span style={{fontSize:10,color:T.muted,fontWeight:800,letterSpacing:.9}}>MONTO PAGADO</span>
+                <input type="number" value={abonoGastoMonto} onChange={e=>setAbonoGastoMonto(e.target.value)} placeholder={String(abonoGasto.monto)}
+                  style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,padding:"9px 12px",color:T.text,fontSize:16,fontWeight:700,outline:"none",width:"100%",boxSizing:"border-box"}}/>
+              </label>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                <button onClick={()=>pagarParcial(abonoGasto.id,abonoGastoMonto)} style={{flex:1,background:T.yellow+"22",color:T.yellow,border:`1px solid ${T.yellow}55`,borderRadius:8,padding:"9px",fontWeight:700,fontSize:13,cursor:"pointer"}}>✓ Guardar parcial</button>
+                <button onClick={()=>pagarParcial(abonoGasto.id,abonoGasto.monto)} style={{background:T.green+"22",color:T.green,border:`1px solid ${T.green}55`,borderRadius:8,padding:"9px 14px",fontWeight:700,fontSize:13,cursor:"pointer"}}>Pagado completo</button>
+                <button onClick={()=>{setAbonoGasto(null);setAbonoGastoMonto("");}} style={{background:T.muted+"22",color:T.muted,border:`1px solid ${T.muted}55`,borderRadius:8,padding:"9px 14px",fontWeight:700,fontSize:13,cursor:"pointer"}}>✕</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {mesesHist.length>0&&(
+        <Card>
+          <div style={{fontSize:11,fontWeight:800,color:T.muted,letterSpacing:.9,marginBottom:10}}>📅 HISTORIAL</div>
+          <div style={{display:"flex",flexDirection:"column",gap:7}}>
+            {mesesHist.map(mk=>{
+              const pg=p.gastos.filter(g=>g.pagadoMes?.[mk]).length;
+              const tot=p.gastos.length;
+              const monto=p.gastos.reduce((s,g)=>s+Number(g.pagadoMes?.[mk]||0),0);
+              return (
+                <div key={mk} style={{display:"flex",alignItems:"center",gap:10,background:T.surface,borderRadius:9,padding:"8px 12px"}}>
+                  <div style={{flex:1,fontSize:13,fontWeight:700,textTransform:"capitalize"}}>{mesLabel(mk)}</div>
+                  <div style={{fontSize:12,color:T.muted}}>{pg}/{tot}</div>
+                  <div style={{fontWeight:900,fontSize:13,color:T.green}}>{fmt(monto)}</div>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ─── TARJETAS ─────────────────────────────────────────────────────────────────
+function Tarjetas({p,persona,clr,updP}) {
+  const [form,setForm]=useState({descripcion:"",monto:"",plataforma:"Addi",bolsillo:"",estado:"Pendiente"});
+  const [filtro,setFiltro]=useState("Activos"); // default: hide paid
+  const [editTC,setEditTC]=useState(null);
+  const [editTCForm,setEditTCForm]=useState({});
+  const sf=k=>v=>setForm(f=>({...f,[k]:v}));
+  const abrirEditTC=(c)=>{setEditTC(c);setEditTCForm({descripcion:c.descripcion,monto:String(c.monto),plataforma:c.plataforma,bolsillo:c.bolsillo||"",estado:c.estado});};
+  const guardarEditTC=()=>{
+    if(!editTCForm.descripcion||!editTCForm.monto) return;
+    updP(persona,{tarjetas:p.tarjetas.map(c=>c.id===editTC.id?{...c,...editTCForm,monto:Number(String(editTCForm.monto).replace(/\D/g,""))}:c)});
+    setEditTC(null);
+  };
+  const add=()=>{
+    if(!form.descripcion||!form.monto) return;
+    updP(persona,{tarjetas:[...p.tarjetas,{...form,id:uid(),monto:Number(String(form.monto).replace(/\D/g,"")),fecha:new Date().toLocaleDateString("es-CO")}]});
+    setForm({descripcion:"",monto:"",plataforma:"Addi",bolsillo:"",estado:"Pendiente"});
+  };
+  const swEst=(id)=>updP(persona,{tarjetas:p.tarjetas.map(c=>{
+    if(c.id!==id) return c;
+    const next = c.estado==="Pendiente"?"En bolsillo":c.estado==="En bolsillo"?"Pagado":"Pendiente";
+    return {...c,estado:next};
+  })});
+  const del=(id)=>updP(persona,{tarjetas:p.tarjetas.filter(c=>c.id!==id)});
+  const lista = filtro==="Todos" ? p.tarjetas
+    : filtro==="Activos" ? p.tarjetas.filter(c=>c.estado!=="Pagado")
+    : p.tarjetas.filter(c=>c.estado===filtro);
+  const pend=p.tarjetas.filter(c=>c.estado==="Pendiente").reduce((s,c)=>s+c.monto,0);
+  const bols=p.tarjetas.filter(c=>c.estado==="En bolsillo").reduce((s,c)=>s+c.monto,0);
+  const pagadoTC=p.tarjetas.filter(c=>c.estado==="Pagado").reduce((s,c)=>s+c.monto,0);
+  const tot=p.tarjetas.reduce((s,c)=>s+c.monto,0);
+  const ing=Number(p.ingreso||0);
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:16,maxWidth:900}}>
+      <div style={{fontSize:11,fontWeight:800,color:T.muted,letterSpacing:.9}}>💳 TARJETAS — {persona.toUpperCase()}</div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10}}>
+        <Stat label="TOTAL MES"    value={fmt(tot)}      sub={ing?Math.round(tot/ing*100)+"%":""} color={clr}/>
+        <Stat label="PENDIENTE"    value={fmt(pend)}     color={T.red}/>
+        <Stat label="EN BOLSILLO"  value={fmt(bols)}     color={T.purple}/>
+        <Stat label="PAGADO"       value={fmt(pagadoTC)} color={T.green}/>
+      </div>
+      {ing>0&&tot>ing*.3&&<div style={{background:T.red+"22",border:`1px solid ${T.red}44`,borderRadius:12,padding:"10px 14px",fontSize:13}}>⚠️ Compras ({fmt(tot)}) superan el 30% del ingreso.</div>}
+      <Card>
+        <div style={{fontWeight:900,marginBottom:12}}>+ Registrar compra</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10}}>
+          <Inp label="DESCRIPCIÓN" value={form.descripcion} onChange={sf("descripcion")} placeholder="Zapatos"/>
+          <Inp label="MONTO" value={form.monto} onChange={sf("monto")} placeholder="150000"/>
+          <Sel label="PLATAFORMA" value={form.plataforma} onChange={sf("plataforma")} opts={PLATAFORMAS}/>
+          <Inp label="BOLSILLO (opc)" value={form.bolsillo} onChange={sf("bolsillo")} placeholder="Bolsillo ropa"/>
+          <Sel label="ESTADO" value={form.estado} onChange={sf("estado")} opts={["Pendiente","En bolsillo","Pagado"]}/>
+        </div>
+        <Btn onClick={add} color={clr} style={{marginTop:12}}>✓ Agregar</Btn>
+      </Card>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+        {["Activos","Pendiente","En bolsillo","Pagado","Todos"].map(function(e){
+          return <button key={e} onClick={()=>setFiltro(e)} style={{background:filtro===e?clr+"33":"transparent",border:"1px solid "+(filtro===e?clr:T.border),borderRadius:7,padding:"5px 12px",color:filtro===e?clr:T.muted,fontSize:12,fontWeight:700,cursor:"pointer"}}>{e}</button>;
+        })}
+      </div>
+      {filtro==="Activos"&&p.tarjetas.filter(c=>c.estado==="Pagado").length>0&&(
+        <div style={{fontSize:12,color:T.muted,padding:"4px 2px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span>✓ {p.tarjetas.filter(c=>c.estado==="Pagado").length} pagado(s) este mes</span>
+          <button onClick={()=>setFiltro("Pagado")} style={{background:"transparent",border:"none",color:T.green,fontSize:12,fontWeight:700,cursor:"pointer"}}>Ver →</button>
+        </div>
+      )}
+      <div style={{display:"flex",flexDirection:"column",gap:6}}>
+        {lista.length===0&&<div style={{color:T.muted,textAlign:"center",padding:36,fontSize:13}}>{filtro==="Activos"?"Todo pagado este mes 🎉":"Sin compras"}</div>}
+        {lista.map(c=>(
+          <div key={c.id} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"11px 13px",display:"flex",alignItems:"center",gap:10}}>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:700,fontSize:13}}>{c.descripcion}</div>
+              <div style={{fontSize:11,color:T.muted,marginTop:1}}>{c.plataforma} · {c.fecha}{c.bolsillo?` · ${c.bolsillo}`:""}</div>
+            </div>
+            <Tag label={c.estado} color={c.estado==="Pagado"?T.green:c.estado==="En bolsillo"?T.purple:T.yellow}/>
+            <div style={{fontWeight:900,fontSize:13,minWidth:75,textAlign:"right"}}>{fmt(c.monto)}</div>
+            <Btn sm onClick={()=>swEst(c.id)} color={c.estado==="Pagado"?T.muted:c.estado==="En bolsillo"?T.green:T.purple}>
+              {c.estado==="Pagado"?"↩":c.estado==="En bolsillo"?"✓ Pagar":"🪙"}
+            </Btn>
+            <Btn sm onClick={()=>abrirEditTC(c)} color={T.purple}>✏</Btn>
+            <Btn sm onClick={()=>del(c.id)} color={T.red}>✕</Btn>
+          </div>
+        ))}
+      </div>
+      {editTC&&(
+        <div style={{position:"fixed",inset:0,background:"#00000099",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:T.card,border:"1px solid "+T.border,borderRadius:20,padding:24,width:"100%",maxWidth:440}}>
+            <div style={{fontWeight:900,fontSize:16,marginBottom:16}}>✏️ Editar compra</div>
+            <div style={{display:"flex",flexDirection:"column",gap:11}}>
+              <Inp label="DESCRIPCIÓN" value={editTCForm.descripcion} onChange={v=>setEditTCForm(f=>({...f,descripcion:v}))}/>
+              <Inp label="MONTO" value={editTCForm.monto} onChange={v=>setEditTCForm(f=>({...f,monto:v}))}/>
+              <Sel label="PLATAFORMA" value={editTCForm.plataforma} onChange={v=>setEditTCForm(f=>({...f,plataforma:v}))} opts={PLATAFORMAS}/>
+              <Inp label="BOLSILLO" value={editTCForm.bolsillo} onChange={v=>setEditTCForm(f=>({...f,bolsillo:v}))}/>
+              <Sel label="ESTADO" value={editTCForm.estado} onChange={v=>setEditTCForm(f=>({...f,estado:v}))} opts={["Pendiente","En bolsillo","Pagado"]}/>
+              <div style={{display:"flex",gap:8,marginTop:4}}>
+                <button onClick={guardarEditTC} style={{flex:1,background:T.green+"22",color:T.green,border:"1px solid "+T.green+"55",borderRadius:8,padding:"10px",fontWeight:700,fontSize:13,cursor:"pointer"}}>✓ Guardar</button>
+                <button onClick={()=>setEditTC(null)} style={{background:T.muted+"22",color:T.muted,border:"1px solid "+T.muted+"55",borderRadius:8,padding:"10px 16px",fontWeight:700,fontSize:13,cursor:"pointer"}}>Cancelar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── PRÉSTAMOS ────────────────────────────────────────────────────────────────
+function calcSaldo(pr){return Math.max(0,Number(pr.valorTotal||0)-(pr.abonos||[]).reduce((s,a)=>s+a.monto,0));}
+
+function Prestamos({p,persona,clr,updP}) {
+  const [form,setForm]=useState({nombre:"",entidad:"Addi",descripcion:"",valorTotal:"",cuotas:"",valorCuota:""});
+  const [abonoModal,setAbonoModal]=useState(null);
+  const [abonoForm,setAbonoForm]=useState({monto:"",nota:""});
+  const sf=k=>v=>setForm(f=>({...f,[k]:v}));
+
+  const add=()=>{
+    if(!form.nombre||!form.valorTotal) return;
+    const vt=Number(String(form.valorTotal).replace(/\D/g,""));
+    const nc=Number(form.cuotas||1);
+    const vc=form.valorCuota?Number(String(form.valorCuota).replace(/\D/g,"")):Math.round(vt/nc);
+    updP(persona,{prestamos:[...p.prestamos,{...form,id:uid(),valorTotal:vt,cuotas:nc,valorCuota:vc,abonos:[]}]});
+    setForm({nombre:"",entidad:"Addi",descripcion:"",valorTotal:"",cuotas:"",valorCuota:""});
+  };
+  const hacerAbono=()=>{
+    const monto=Number(String(abonoForm.monto).replace(/\D/g,""));
+    if(!monto) return;
+    const ab={id:uid(),monto,nota:abonoForm.nota,fecha:new Date().toLocaleDateString("es-CO")};
+    updP(persona,{prestamos:p.prestamos.map(pr=>pr.id===abonoModal?{...pr,abonos:[...(pr.abonos||[]),ab]}:pr)});
+    setAbonoForm({monto:"",nota:""}); setAbonoModal(null);
+  };
+  const delAbono=(prId,aId)=>updP(persona,{prestamos:p.prestamos.map(pr=>pr.id===prId?{...pr,abonos:pr.abonos.filter(a=>a.id!==aId)}:pr)});
+  const del=(id)=>updP(persona,{prestamos:p.prestamos.filter(pr=>pr.id!==id)});
+  const [editPr,setEditPr]=useState(null);
+  const [editPrForm,setEditPrForm]=useState({});
+  const abrirEditPr=(pr)=>{setEditPr(pr);setEditPrForm({nombre:pr.nombre,entidad:pr.entidad,descripcion:pr.descripcion||"",valorTotal:String(pr.valorTotal),cuotas:String(pr.cuotas),valorCuota:String(pr.valorCuota)});};
+  const guardarEditPr=()=>{
+    if(!editPrForm.nombre||!editPrForm.valorTotal) return;
+    const vt=Number(String(editPrForm.valorTotal).replace(/\D/g,""));
+    const nc=Number(editPrForm.cuotas||1);
+    const vc=editPrForm.valorCuota?Number(String(editPrForm.valorCuota).replace(/\D/g,"")):Math.round(vt/nc);
+    updP(persona,{prestamos:p.prestamos.map(pr=>pr.id===editPr.id?{...pr,...editPrForm,valorTotal:vt,cuotas:nc,valorCuota:vc}:pr)});
+    setEditPr(null);
+  };
+  const totDeuda=p.prestamos.reduce((s,pr)=>s+calcSaldo(pr),0);
+  const cuotaMes=p.prestamos.filter(pr=>calcSaldo(pr)>0).reduce((s,pr)=>s+Number(pr.valorCuota||0),0);
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:16,maxWidth:900}}>
+      <div style={{fontSize:11,fontWeight:800,color:T.muted,letterSpacing:.9}}>🏦 PRÉSTAMOS — {persona.toUpperCase()}</div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10}}>
+        <Stat label="DEUDA TOTAL"   value={fmt(totDeuda)}  color={T.red}/>
+        <Stat label="CUOTA MENSUAL" value={fmt(cuotaMes)}  color={T.yellow}/>
+        <Stat label="ACTIVOS"       value={p.prestamos.filter(pr=>calcSaldo(pr)>0).length} color={clr}/>
+      </div>
+      <Card>
+        <div style={{fontWeight:900,marginBottom:12}}>+ Registrar préstamo</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10}}>
+          <Inp label="NOMBRE" value={form.nombre} onChange={sf("nombre")} placeholder="Zapatos Addi"/>
+          <Sel label="ENTIDAD" value={form.entidad} onChange={sf("entidad")} opts={ENTIDADES}/>
+          <Inp label="DESCRIPCIÓN" value={form.descripcion} onChange={sf("descripcion")} placeholder="Opcional"/>
+          <Inp label="VALOR TOTAL" value={form.valorTotal} onChange={sf("valorTotal")} placeholder="500000"/>
+          <Inp label="N° CUOTAS" type="number" value={form.cuotas} onChange={sf("cuotas")} placeholder="10"/>
+          <Inp label="VALOR CUOTA (auto)" value={form.valorCuota} onChange={sf("valorCuota")} placeholder="50000"/>
+        </div>
+        <Btn onClick={add} color={T.red} style={{marginTop:12}}>✓ Registrar</Btn>
+      </Card>
+      <div style={{display:"flex",flexDirection:"column",gap:13}}>
+        {p.prestamos.length===0&&<div style={{color:T.muted,textAlign:"center",padding:36,fontSize:13}}>Sin préstamos</div>}
+        {p.prestamos.map(pr=>{
+          const saldo=calcSaldo(pr);
+          const totAb=(pr.abonos||[]).reduce((s,a)=>s+a.monto,0);
+          const pct=pr.valorTotal?Math.round(totAb/pr.valorTotal*100):0;
+          const fin=saldo<=0;
+          return (
+            <Card key={pr.id}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+                <div>
+                  <div style={{fontWeight:900,fontSize:15}}>{pr.nombre}</div>
+                  <div style={{fontSize:11,color:T.muted,marginTop:2}}>{pr.entidad}{pr.descripcion?` · ${pr.descripcion}`:""}</div>
+                </div>
+                <div style={{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"flex-end"}}>
+                  <Tag label={fin?"✓ Pagado":"Activo"} color={fin?T.green:T.red}/>
+                  {!fin&&<Btn sm color={T.green} onClick={()=>setAbonoModal(pr.id)}>+ Abonar</Btn>}
+                  <Btn sm color={T.purple} onClick={()=>abrirEditPr(pr)}>✏</Btn>
+                  <Btn sm color={T.red} onClick={()=>del(pr.id)}>✕</Btn>
+                </div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(100px,1fr))",gap:9,marginBottom:11}}>
+                {[{l:"Valor total",v:fmt(pr.valorTotal),c:T.text},{l:"Cuota",v:fmt(pr.valorCuota),c:T.text},{l:"Cuotas",v:pr.cuotas,c:T.text},{l:"Abonado",v:fmt(totAb),c:T.green},{l:"Saldo",v:fmt(saldo),c:fin?T.muted:T.red}].map(({l,v,c})=>(
+                  <div key={l} style={{fontSize:12}}><div style={{color:T.muted,marginBottom:2}}>{l}</div><div style={{fontWeight:900,color:c}}>{v}</div></div>
+                ))}
+              </div>
+              <Bar pct={pct} color={fin?T.green:clr}/>
+              <div style={{fontSize:11,color:T.muted,marginTop:4}}>Avance {pct}%</div>
+              {(pr.abonos||[]).length>0&&(
+                <div style={{marginTop:12}}>
+                  <div style={{fontSize:10,fontWeight:800,color:T.muted,letterSpacing:.9,marginBottom:7}}>HISTORIAL ABONOS</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                    {pr.abonos.map(a=>(
+                      <div key={a.id} style={{display:"flex",alignItems:"center",gap:9,background:T.surface,borderRadius:8,padding:"6px 10px"}}>
+                        <div style={{color:T.green,fontWeight:900,fontSize:13}}>{fmt(a.monto)}</div>
+                        <div style={{flex:1,fontSize:11,color:T.muted}}>{a.fecha}{a.nota?` · ${a.nota}`:""}</div>
+                        <Btn sm color={T.red} onClick={()=>delAbono(pr.id,a.id)}>✕</Btn>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </Card>
+          );
+        })}
+      </div>
+      {editPr&&(
+        <div style={{position:"fixed",inset:0,background:"#00000099",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:T.card,border:"1px solid "+T.border,borderRadius:20,padding:24,width:"100%",maxWidth:440,maxHeight:"88vh",overflowY:"auto"}}>
+            <div style={{fontWeight:900,fontSize:16,marginBottom:16}}>✏️ Editar préstamo</div>
+            <div style={{display:"flex",flexDirection:"column",gap:11}}>
+              <Inp label="NOMBRE" value={editPrForm.nombre} onChange={v=>setEditPrForm(f=>({...f,nombre:v}))}/>
+              <Sel label="ENTIDAD" value={editPrForm.entidad} onChange={v=>setEditPrForm(f=>({...f,entidad:v}))} opts={ENTIDADES}/>
+              <Inp label="DESCRIPCIÓN" value={editPrForm.descripcion} onChange={v=>setEditPrForm(f=>({...f,descripcion:v}))}/>
+              <Inp label="VALOR TOTAL" value={editPrForm.valorTotal} onChange={v=>setEditPrForm(f=>({...f,valorTotal:v}))}/>
+              <Inp label="N° CUOTAS" type="number" value={editPrForm.cuotas} onChange={v=>setEditPrForm(f=>({...f,cuotas:v}))}/>
+              <Inp label="VALOR CUOTA" value={editPrForm.valorCuota} onChange={v=>setEditPrForm(f=>({...f,valorCuota:v}))}/>
+              <div style={{display:"flex",gap:8,marginTop:4}}>
+                <button onClick={guardarEditPr} style={{flex:1,background:T.green+"22",color:T.green,border:"1px solid "+T.green+"55",borderRadius:8,padding:"10px",fontWeight:700,fontSize:13,cursor:"pointer"}}>✓ Guardar</button>
+                <button onClick={()=>setEditPr(null)} style={{background:T.muted+"22",color:T.muted,border:"1px solid "+T.muted+"55",borderRadius:8,padding:"10px 16px",fontWeight:700,fontSize:13,cursor:"pointer"}}>Cancelar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {abonoModal&&(()=>{
+        const pr=p.prestamos.find(x=>x.id===abonoModal);
+        const saldo=calcSaldo(pr);
+        return (
+          <Modal title="💸 Registrar abono" onClose={()=>setAbonoModal(null)}>
+            <div style={{display:"flex",flexDirection:"column",gap:13}}>
+              <div style={{background:T.surface,borderRadius:10,padding:"11px 13px",fontSize:13}}>
+                <div style={{fontWeight:900}}>{pr.nombre}</div>
+                <div style={{color:T.muted,fontSize:12,marginTop:3}}>Saldo: <span style={{color:T.red,fontWeight:900}}>{fmt(saldo)}</span> · Cuota: <span style={{fontWeight:700}}>{fmt(pr.valorCuota)}</span> · {(pr.abonos||[]).length} abonos</div>
+              </div>
+              <Inp label="MONTO DEL ABONO" value={abonoForm.monto} onChange={v=>setAbonoForm(f=>({...f,monto:v}))} placeholder={String(pr.valorCuota)}/>
+              <Inp label="NOTA (opcional)" value={abonoForm.nota} onChange={v=>setAbonoForm(f=>({...f,nota:v}))} placeholder="Cuota 3, pago extra…"/>
+              <div style={{display:"flex",gap:8}}>
+                <Btn color={T.green} onClick={hacerAbono} style={{flex:1}}>✓ Registrar</Btn>
+                <Btn color={clr} onClick={()=>setAbonoForm(f=>({...f,monto:String(pr.valorCuota)}))}>Cuota exacta</Btn>
+              </div>
+            </div>
+          </Modal>
+        );
+      })()}
+    </div>
+  );
+}
+
+// ─── BOLSILLOS ────────────────────────────────────────────────────────────────
+function Bolsillos({p,persona,clr,updP}) {
+  const [form,setForm]=useState({nombre:"",monto:"",meta:"",descripcion:""});
+  const sf=k=>v=>setForm(f=>({...f,[k]:v}));
+  const add=()=>{
+    if(!form.nombre) return;
+    updP(persona,{bolsillos:[...p.bolsillos,{...form,id:uid(),monto:Number(form.monto||0),meta:Number(form.meta||0)}]});
+    setForm({nombre:"",monto:"",meta:"",descripcion:""});
+  };
+  const setM=(id,v)=>updP(persona,{bolsillos:p.bolsillos.map(b=>b.id===id?{...b,monto:Number(v||0)}:b)});
+  const del=(id)=>updP(persona,{bolsillos:p.bolsillos.filter(b=>b.id!==id)});
+  const [editBol,setEditBol]=useState(null);
+  const [editBolForm,setEditBolForm]=useState({});
+  const abrirEditBol=(b)=>{setEditBol(b);setEditBolForm({nombre:b.nombre,meta:String(b.meta||""),descripcion:b.descripcion||""});};
+  const guardarEditBol=()=>{
+    updP(persona,{bolsillos:p.bolsillos.map(b=>b.id===editBol.id?{...b,...editBolForm,meta:Number(editBolForm.meta||0)}:b)});
+    setEditBol(null);
+  };
+  const total=p.bolsillos.reduce((s,b)=>s+Number(b.monto||0),0);
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:16,maxWidth:900}}>
+      <div style={{fontSize:11,fontWeight:800,color:T.muted,letterSpacing:.9}}>🪙 BOLSILLOS LULO — {persona.toUpperCase()}</div>
+      <Stat label="TOTAL EN BOLSILLOS" value={fmt(total)} color={T.purple}/>
+      <Card>
+        <div style={{fontWeight:900,marginBottom:12}}>+ Crear bolsillo</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10}}>
+          <Inp label="NOMBRE" value={form.nombre} onChange={sf("nombre")} placeholder="Ropa"/>
+          <Inp label="SALDO ACTUAL" type="number" value={form.monto} onChange={sf("monto")} placeholder="0"/>
+          <Inp label="META" type="number" value={form.meta} onChange={sf("meta")} placeholder="500000"/>
+          <Inp label="DESCRIPCIÓN" value={form.descripcion} onChange={sf("descripcion")} placeholder="Opcional"/>
+        </div>
+        <Btn onClick={add} color={T.purple} style={{marginTop:12}}>✓ Crear</Btn>
+      </Card>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(230px,1fr))",gap:12}}>
+        {p.bolsillos.length===0&&<div style={{color:T.muted,textAlign:"center",padding:36,fontSize:13}}>Sin bolsillos</div>}
+        {p.bolsillos.map(b=>{
+          const pct=b.meta?Math.round(b.monto/b.meta*100):100;
+          const done=b.meta>0&&b.monto>=b.meta;
+          return (
+            <Card key={b.id}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+                <div><div style={{fontWeight:900}}>🪙 {b.nombre}</div>{b.descripcion&&<div style={{fontSize:11,color:T.muted}}>{b.descripcion}</div>}</div>
+                <Btn sm color={T.purple} onClick={()=>abrirEditBol(b)}>✏</Btn>
+                <Btn sm color={T.red} onClick={()=>del(b.id)}>✕</Btn>
+              </div>
+              <input type="number" value={b.monto} onChange={e=>setM(b.id,e.target.value)}
+                style={{background:T.surface,border:`1px solid ${clr}55`,borderRadius:8,padding:"9px 13px",color:clr,width:"100%",fontSize:22,fontWeight:900,boxSizing:"border-box",outline:"none",marginBottom:b.meta>0?9:0}}/>
+              {b.meta>0&&(
+                <>
+                  <Bar pct={pct} color={done?T.green:T.purple}/>
+                  <div style={{display:"flex",justifyContent:"space-between",marginTop:5,fontSize:11,color:T.muted}}>
+                    <span>{fmt(b.monto)}</span><span>Meta {fmt(b.meta)} ({pct}%)</span>
+                  </div>
+                  {done&&<div style={{marginTop:5,fontSize:12,color:T.green,fontWeight:700}}>🎉 ¡Meta cumplida!</div>}
+                </>
+              )}
+            </Card>
+          );
+        })}
+      </div>
+      {editBol&&(
+        <div style={{position:"fixed",inset:0,background:"#00000099",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:T.card,border:"1px solid "+T.border,borderRadius:20,padding:24,width:"100%",maxWidth:440}}>
+            <div style={{fontWeight:900,fontSize:16,marginBottom:16}}>✏️ Editar bolsillo</div>
+            <div style={{display:"flex",flexDirection:"column",gap:11}}>
+              <Inp label="NOMBRE" value={editBolForm.nombre} onChange={v=>setEditBolForm(f=>({...f,nombre:v}))}/>
+              <Inp label="META" type="number" value={editBolForm.meta} onChange={v=>setEditBolForm(f=>({...f,meta:v}))}/>
+              <Inp label="DESCRIPCIÓN" value={editBolForm.descripcion} onChange={v=>setEditBolForm(f=>({...f,descripcion:v}))}/>
+              <div style={{display:"flex",gap:8,marginTop:4}}>
+                <button onClick={guardarEditBol} style={{flex:1,background:T.green+"22",color:T.green,border:"1px solid "+T.green+"55",borderRadius:8,padding:"10px",fontWeight:700,fontSize:13,cursor:"pointer"}}>✓ Guardar</button>
+                <button onClick={()=>setEditBol(null)} style={{background:T.muted+"22",color:T.muted,border:"1px solid "+T.muted+"55",borderRadius:8,padding:"10px 16px",fontWeight:700,fontSize:13,cursor:"pointer"}}>Cancelar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
