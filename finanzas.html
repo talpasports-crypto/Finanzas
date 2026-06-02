@@ -177,7 +177,7 @@ function App() {
       {/* DRAWER */}
       <div style={{position:"fixed",top:56,left:0,bottom:0,width:220,background:T.sidebar,borderRight:`1px solid ${T.border}`,display:"flex",flexDirection:"column",zIndex:300,transform:drawerOpen?"translateX(0)":"translateX(-100%)",transition:"transform .25s cubic-bezier(.4,0,.2,1)",boxShadow:drawerOpen?"4px 0 32px #00000066":"none"}}>
         <nav style={{flex:1,padding:"10px 8px",display:"flex",flexDirection:"column",gap:3,overflowY:"auto"}}>
-          {NAV.map(item=>{
+          {NAV.filter(item=>!(persona==="Carlos"&&item.id==="tarjetas")).map(item=>{
             const active=tab===item.id;
             const badge=item.id==="gastos"&&sinPagar>0?sinPagar:null;
             return (
@@ -196,7 +196,7 @@ function App() {
       <main style={{flex:1,overflowY:"auto",padding:"20px 16px"}}>
         {tab==="resumen"   && <Resumen   p={p} persona={persona} clr={clr} updP={updP} mes={mes} TC={TC}/>}
         {tab==="gastos"    && <Gastos    p={p} persona={persona} clr={clr} updP={updP} mes={mes} TC={TC}/>}
-        {tab==="tarjetas"  && <Tarjetas  p={p} persona={persona} clr={clr} updP={updP}/>}
+        {tab==="tarjetas"  && persona==="Nicolle" && <Tarjetas  p={p} persona={persona} clr={clr} updP={updP}/>}
         {tab==="prestamos" && <Prestamos p={p} persona={persona} clr={clr} updP={updP}/>}
         {tab==="bolsillos" && <Bolsillos p={p} persona={persona} clr={clr} updP={updP}/>}
       </main>
@@ -212,8 +212,8 @@ function Resumen({p,persona,clr,updP,mes,TC}) {
   // helper: convierte "DD/MM/YYYY" a "YYYY-MM"
   const abonoFecha = (a)=>{ if(!a.fecha) return ""; const pts=a.fecha.split("/"); return pts.length===3?String(pts[2])+"-"+pts[1].padStart(2,"0"):a.fecha.slice(0,7); };
   // gastos fijos
-  const pagadoGastos     = p.gastos.reduce((s,g)=>s+Number(g.pagadoMes?.[mes]||0),0);
-  const porPagarGastos   = p.gastos.reduce((s,g)=>s+Math.max(0,Number(g.monto)-Number(g.pagadoMes?.[mes]||0)),0);
+  const pagadoGastos     = p.gastos.reduce((s,g)=>s+Number(g.pagadoMes?.[mes]||0),0); // gastos fijos pagados
+  const porPagarGastos   = p.gastos.reduce((s,g)=>s+Math.max(0,Number(g.monto||0)-Number(g.pagadoMes?.[mes]||0)),0);
   const gastosCompletos  = p.gastos.filter(g=>Number(g.pagadoMes?.[mes]||0)>=Number(g.monto)&&Number(g.monto)>0);
   const gastosParciales  = p.gastos.filter(g=>{ const pp=Number(g.pagadoMes?.[mes]||0); return pp>0&&pp<Number(g.monto); });
   const gastosPendientes = p.gastos.filter(g=>!(Number(g.pagadoMes?.[mes]||0)>0));
@@ -257,7 +257,7 @@ function Resumen({p,persona,clr,updP,mes,TC}) {
           <div>
             <div style={{fontSize:10,color:T.muted,fontWeight:800,letterSpacing:.9,marginBottom:3}}>PAGADO {showPagado?"▲":"▼"}</div>
             <div style={{fontSize:22,fontWeight:900,color:T.green,letterSpacing:-1}}>{fmt(pagado)}</div>
-            <div style={{fontSize:11,color:T.muted,marginTop:2}}>{ing?Math.round(pagado/ing*100):0}% del ingreso</div>
+            <div style={{fontSize:11,color:T.muted,marginTop:2}}>{ing>0?Math.round(pagado/ing*100):0}% del ingreso</div>
           </div>
         </div>
         {showPagado?(
@@ -304,7 +304,7 @@ function Resumen({p,persona,clr,updP,mes,TC}) {
           <div>
             <div style={{fontSize:10,color:T.muted,fontWeight:800,letterSpacing:.9,marginBottom:3}}>POR PAGAR {showPorPagar?"▲":"▼"}</div>
             <div style={{fontSize:22,fontWeight:900,color:T.yellow,letterSpacing:-1}}>{fmt(porPagar)}</div>
-            <div style={{fontSize:11,color:T.muted,marginTop:2}}>{gastosPendientes.length+gastosParciales.length} pendientes</div>
+            <div style={{fontSize:11,color:T.muted,marginTop:2}}>{gastosPendientes.length+gastosParciales.length} sin pagar</div>
           </div>
         </div>
         {showPorPagar?(
